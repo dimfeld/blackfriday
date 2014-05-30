@@ -5,7 +5,7 @@ import (
 )
 
 func doTestsSanitize(t *testing.T, tests []string) {
-	doTestsInlineParam(t, tests, 0, HTML_SKIP_STYLE|HTML_SANITIZE_OUTPUT, HtmlRendererParameters{})
+	doTestsInlineParam(t, tests, 0, HTML_SANITIZE_OUTPUT, HtmlRendererParameters{})
 }
 
 func TestSanitizeRawHtmlTag(t *testing.T) {

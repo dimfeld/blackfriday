@@ -93,10 +93,13 @@ func transformLinks(tests []string, prefix string) []string {
 	newTests := make([]string, len(tests))
 	anchorRe := regexp.MustCompile(`<a href="/(.*?)"`)
 	imgRe := regexp.MustCompile(`<img src="/(.*?)"`)
+	srcSetRe := regexp.MustCompile(`srcset="/(.*?), /(.*?)"`)
 	for i, test := range tests {
 		if i%2 == 1 {
 			test = anchorRe.ReplaceAllString(test, `<a href="`+prefix+`/$1"`)
 			test = imgRe.ReplaceAllString(test, `<img src="`+prefix+`/$1"`)
+			test = srcSetRe.ReplaceAllString(test,
+				`srcset="`+prefix+`/$1, `+prefix+`/$2"`)
 		}
 		newTests[i] = test
 	}
@@ -416,6 +419,24 @@ func TestInlineLink(t *testing.T) {
 
 		"[[t]](/t)\n",
 		"<p><a href=\"/t\">[t]</a></p>\n",
+
+		`<a href="/abc.html">abc</a>`,
+		"<p><a href=\"/abc.html\">abc</a></p>\n",
+
+		`<img src="/abc.jpg">`,
+		"<p><img src=\"/abc.jpg\"></p>\n",
+
+		`<img src="/abc.jpg" srcset="/a.jpg 1x, /a@2x.jpg 2x">`,
+		"<p><img src=\"/abc.jpg\" srcset=\"/a.jpg 1x, /a@2x.jpg 2x\"></p>\n",
+
+		`<img src="/abc.jpg"/>`,
+		"<p><img src=\"/abc.jpg\"/></p>\n",
+
+		`<img src="/abc.jpg" srcset="/a.jpg 1x, /a@2x.jpg 2x"/>`,
+		"<p><img src=\"/abc.jpg\" srcset=\"/a.jpg 1x, /a@2x.jpg 2x\"/></p>\n",
+
+		`<img src="/abc.jpg" alt="def"/>`,
+		"<p><img src=\"/abc.jpg\" alt=\"def\"/></p>\n",
 	}
 	doLinkTestsInline(t, tests)
 

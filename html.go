@@ -17,7 +17,9 @@ package blackfriday
 
 import (
 	"bytes"
+	"code.google.com/p/go.net/html"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -213,7 +215,23 @@ func (options *Html) BlockHtml(out *bytes.Buffer, text []byte) {
 	}
 
 	doubleSpace(out)
-	out.Write(text)
+
+	r := bytes.NewReader(text)
+	tokenizer := html.NewTokenizer(r)
+
+	t := tokenizer.Next()
+	for tokenizer.Err() != io.EOF {
+		switch t {
+		case html.StartTagToken, html.SelfClosingTagToken, html.EndTagToken:
+			options.RawHtmlTag(out, tokenizer.Raw())
+
+		default:
+			out.Write(tokenizer.Raw())
+		}
+
+		t = tokenizer.Next()
+	}
+
 	out.WriteByte('\n')
 }
 
@@ -572,6 +590,85 @@ func (options *Html) Link(out *bytes.Buffer, link []byte, title []byte, content 
 	return
 }
 
+func (options *Html) processRawHtmlLinkTag(out *bytes.Buffer, text []byte,
+	attrs []string) {
+
+	r := bytes.NewReader(text)
+	tokenizer := html.NewTokenizer(r)
+
+	t := tokenizer.Next()
+
+	if t != html.StartTagToken && t != html.SelfClosingTagToken {
+		out.Write(tokenizer.Raw())
+		return
+	}
+
+	tagOut := &bytes.Buffer{}
+
+	tag, hasAttributes := tokenizer.TagName()
+
+	tagOut.WriteByte('<')
+	tagOut.Write(tag)
+
+	useBuffer := false
+
+	for hasAttributes {
+		var key, val []byte
+		key, val, hasAttributes = tokenizer.TagAttr()
+
+		match := false
+		for _, linkAttr := range attrs {
+			if linkAttr == string(key) {
+				match = true
+				break
+			}
+		}
+
+		tagOut.WriteByte(' ')
+		tagOut.Write(key)
+		tagOut.WriteString(`="`)
+
+		if match && isRelativeLink(val) {
+			useBuffer = true
+			if string(key) == "srcset" {
+				// Special handling for srcset since it contains multiple links.
+				links := strings.Split(string(val), ",")
+				for i, link := range links {
+					link := strings.TrimSpace(link)
+					if isRelativeLink([]byte(link)) {
+						options.maybeWriteAbsolutePrefix(tagOut, []byte(link))
+					}
+					tagOut.WriteString(link)
+					if i+1 != len(links) {
+						tagOut.WriteString(", ")
+					}
+				}
+			} else {
+				options.maybeWriteAbsolutePrefix(tagOut, val)
+				tagOut.Write(val)
+			}
+		} else {
+			tagOut.Write(val)
+		}
+
+		tagOut.WriteByte('"')
+	}
+
+	if !useBuffer {
+		// If we didn't find any links to change, then just write the original
+		// tag, to be faithful to the input.
+		out.Write(tokenizer.Raw())
+		return
+	}
+
+	if t == html.SelfClosingTagToken {
+		tagOut.WriteByte('/')
+	}
+	tagOut.WriteByte('>')
+
+	out.Write(tagOut.Bytes())
+}
+
 func (options *Html) RawHtmlTag(out *bytes.Buffer, text []byte) {
 	if options.flags&HTML_SKIP_HTML != 0 {
 		return
@@ -579,12 +676,29 @@ func (options *Html) RawHtmlTag(out *bytes.Buffer, text []byte) {
 	if options.flags&HTML_SKIP_STYLE != 0 && isHtmlTag(text, "style") {
 		return
 	}
-	if options.flags&HTML_SKIP_LINKS != 0 && isHtmlTag(text, "a") {
+
+	isImg := isHtmlTag(text, "img")
+	isA := isHtmlTag(text, "a")
+
+	if options.flags&HTML_SKIP_LINKS != 0 && isA {
 		return
 	}
-	if options.flags&HTML_SKIP_IMAGES != 0 && isHtmlTag(text, "img") {
+	if options.flags&HTML_SKIP_IMAGES != 0 && isImg {
 		return
 	}
+
+	if (isA || isImg) && options.parameters.AbsolutePrefix != "" {
+		var linkAttrs []string
+		if isImg {
+			linkAttrs = []string{"src", "srcset"}
+		} else {
+			linkAttrs = []string{"href"}
+		}
+
+		options.processRawHtmlLinkTag(out, text, linkAttrs)
+		return
+	}
+
 	out.Write(text)
 }
 
@@ -841,6 +955,9 @@ func findHtmlTagPos(tag []byte, tagname string) (bool, int) {
 		return false, -1
 	}
 
+	// Step back to the previous character, since we may be on the rightAngle
+	// right now.
+	i--
 	rightAngle := skipUntilCharIgnoreQuotes(tag, i, '>')
 	if rightAngle > i {
 		return true, rightAngle

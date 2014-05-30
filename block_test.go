@@ -17,16 +17,16 @@ import (
 	"testing"
 )
 
-func runMarkdownBlock(input string, extensions int) string {
-	htmlFlags := 0
+func runMarkdownBlock(input string, extensions, htmlFlags int, absolutePrefix string) string {
 	htmlFlags |= HTML_USE_XHTML
 
-	renderer := HtmlRenderer(htmlFlags, "", "")
+	params := HtmlRendererParameters{AbsolutePrefix: absolutePrefix}
+	renderer := HtmlRendererWithParameters(htmlFlags, "", "", params)
 
 	return string(Markdown([]byte(input), renderer, extensions))
 }
 
-func doTestsBlock(t *testing.T, tests []string, extensions int) {
+func doTestsBlock(t *testing.T, tests []string, extensions, htmlFlags int, absolutePrefix string) {
 	// catch and report panics
 	var candidate string
 	defer func() {
@@ -39,7 +39,7 @@ func doTestsBlock(t *testing.T, tests []string, extensions int) {
 		input := tests[i]
 		candidate = input
 		expected := tests[i+1]
-		actual := runMarkdownBlock(candidate, extensions)
+		actual := runMarkdownBlock(candidate, extensions, htmlFlags, absolutePrefix)
 		if actual != expected {
 			t.Errorf("\nInput   [%#v]\nExpected[%#v]\nActual  [%#v]",
 				candidate, expected, actual)
@@ -50,7 +50,7 @@ func doTestsBlock(t *testing.T, tests []string, extensions int) {
 			for start := 0; start < len(input); start++ {
 				for end := start + 1; end <= len(input); end++ {
 					candidate = input[start:end]
-					_ = runMarkdownBlock(candidate, extensions)
+					_ = runMarkdownBlock(candidate, extensions, htmlFlags, absolutePrefix)
 				}
 			}
 		}
@@ -114,7 +114,7 @@ func TestPrefixHeaderNoExtensions(t *testing.T) {
 		"<ul>\n<li><p>List</p>\n\n<ul>\n<li><p>Nested list</p>\n\n" +
 			"<h1>Nested header</h1></li>\n</ul></li>\n</ul>\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
 }
 
 func TestPrefixHeaderSpaceExtension(t *testing.T) {
@@ -174,7 +174,7 @@ func TestPrefixHeaderSpaceExtension(t *testing.T) {
 		"<ul>\n<li><p>List</p>\n\n<ul>\n<li><p>Nested list</p>\n\n" +
 			"<h1>Nested header</h1></li>\n</ul></li>\n</ul>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_SPACE_HEADERS)
+	doTestsBlock(t, tests, EXTENSION_SPACE_HEADERS, 0, "")
 }
 
 func TestPrefixHeaderIdExtension(t *testing.T) {
@@ -234,7 +234,7 @@ func TestPrefixHeaderIdExtension(t *testing.T) {
 		"<ul>\n<li><p>List</p>\n\n<ul>\n<li><p>Nested list</p>\n\n" +
 			"<h1 id=\"someid\">Nested header</h1></li>\n</ul></li>\n</ul>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_HEADER_IDS)
+	doTestsBlock(t, tests, EXTENSION_HEADER_IDS, 0, "")
 }
 
 func TestUnderlineHeaders(t *testing.T) {
@@ -284,7 +284,7 @@ func TestUnderlineHeaders(t *testing.T) {
 		"Double underline\n=====\n=====\n",
 		"<h1>Double underline</h1>\n\n<p>=====</p>\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
 }
 
 func TestHorizontalRule(t *testing.T) {
@@ -349,7 +349,7 @@ func TestHorizontalRule(t *testing.T) {
 		"---\n***\n___\n",
 		"<hr />\n\n<hr />\n\n<hr />\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
 }
 
 func TestUnorderedList(t *testing.T) {
@@ -460,7 +460,7 @@ func TestUnorderedList(t *testing.T) {
 		"* List\n\n    * sublist\n\n    normal text\n\n    * another sublist\n",
 		"<ul>\n<li><p>List</p>\n\n<ul>\n<li>sublist</li>\n</ul>\n\n<p>normal text</p>\n\n<ul>\n<li>another sublist</li>\n</ul></li>\n</ul>\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
 }
 
 func TestOrderedList(t *testing.T) {
@@ -556,7 +556,7 @@ func TestOrderedList(t *testing.T) {
 		"1. numbers\n1. are ignored\n",
 		"<ol>\n<li>numbers</li>\n<li>are ignored</li>\n</ol>\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
 }
 
 func TestPreformattedHtml(t *testing.T) {
@@ -608,8 +608,80 @@ func TestPreformattedHtml(t *testing.T) {
 
 		"Paragraph\n\n<div>\nHow about here? >&<\n</div>\n\nAnd here?\n",
 		"<p>Paragraph</p>\n\n<div>\nHow about here? >&<\n</div>\n\n<p>And here?</p>\n",
+
+		"<div><img src=\"/abc.jpg\"></div>\n",
+		"<div><img src=\"/abc.jpg\"></div>\n",
 	}
-	doTestsBlock(t, tests, 0)
+	doTestsBlock(t, tests, 0, 0, "")
+}
+
+func TestPreformattedHtmlWithOptions(t *testing.T) {
+	t.Log(isHtmlTag([]byte("</a>"), "a"))
+	prefix := "http://localhost/"
+	var absolutePrefixTests = []string{
+		"<div><img src=\"/abc.jpg\"></div>\n",
+		"<div><img src=\"/abc.jpg\"></div>\n",
+
+		"<div><img src=\"/abc.jpg\"/></div>\n",
+		"<div><img src=\"/abc.jpg\"/></div>\n",
+
+		"<div><img src=\"http://golang.org/abc.jpg\"></div>\n",
+		"<div><img src=\"http://golang.org/abc.jpg\"></div>\n",
+
+		"<div><a href=\"/abc.html\">def</a></div>\n",
+		"<div><a href=\"/abc.html\">def</a></div>\n",
+
+		"<div><a href=\"http://golang.org/abc.html\">def</a></div>\n",
+		"<div><a href=\"http://golang.org/abc.html\">def</a></div>\n",
+	}
+	t.Log("Test without any options")
+	doTestsBlock(t, absolutePrefixTests, 0, 0, "")
+	t.Log("Test with absolute prefix")
+	doTestsBlock(t, transformLinks(absolutePrefixTests, prefix), 0, 0, prefix)
+
+	var skipLinkTests = []string{
+		"<div><img src=\"/abc.jpg\"></div>\n",
+		"<div><img src=\"/abc.jpg\"></div>\n",
+
+		"<div><img src=\"/abc.jpg\"/></div>\n",
+		"<div><img src=\"/abc.jpg\"/></div>\n",
+
+		"<div><img src=\"http://golang.org/abc.jpg\"></div>\n",
+		"<div><img src=\"http://golang.org/abc.jpg\"></div>\n",
+
+		"<div><a href=\"/abc.html\">def</a></div>\n",
+		"<div>def</div>\n",
+
+		"<div><a href=\"http://golang.org/abc.html\">def</a></div>\n",
+		"<div>def</div>\n",
+	}
+
+	t.Log("Test with skip links")
+	doTestsBlock(t, skipLinkTests, 0, HTML_SKIP_LINKS, "")
+	t.Log("Test with absolute prefix and skip links")
+	doTestsBlock(t, transformLinks(skipLinkTests, prefix), 0, HTML_SKIP_LINKS, prefix)
+
+	var skipImgTests = []string{
+		"<div><img src=\"/abc.jpg\"></div>\n",
+		"<div></div>\n",
+
+		"<div><img src=\"/abc.jpg\"/></div>\n",
+		"<div></div>\n",
+
+		"<div><img src=\"http://golang.org/abc.jpg\"></div>\n",
+		"<div></div>\n",
+
+		"<div><a href=\"/abc.html\">def</a></div>\n",
+		"<div><a href=\"/abc.html\">def</a></div>\n",
+
+		"<div><a href=\"http://golang.org/abc.html\">def</a></div>\n",
+		"<div><a href=\"http://golang.org/abc.html\">def</a></div>\n",
+	}
+
+	t.Log("Test with skip images")
+	doTestsBlock(t, skipImgTests, 0, HTML_SKIP_IMAGES, "")
+	t.Log("Test with absolute prefix and skip images")
+	doTestsBlock(t, transformLinks(skipImgTests, prefix), 0, HTML_SKIP_IMAGES, prefix)
 }
 
 func TestPreformattedHtmlLax(t *testing.T) {
@@ -632,7 +704,7 @@ func TestPreformattedHtmlLax(t *testing.T) {
 		"Paragraph\n\n<div>\nHow about here? >&<\n</div>\n\nAnd here?\n",
 		"<p>Paragraph</p>\n\n<div>\nHow about here? >&<\n</div>\n\n<p>And here?</p>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_LAX_HTML_BLOCKS)
+	doTestsBlock(t, tests, EXTENSION_LAX_HTML_BLOCKS, 0, "")
 }
 
 func TestFencedCodeBlock(t *testing.T) {
@@ -718,7 +790,7 @@ func TestFencedCodeBlock(t *testing.T) {
 		"Some text before a fenced code block\n``` oz\ncode blocks breakup paragraphs\n```\nSome text in between\n``` oz\nmultiple code blocks work okay\n```\nAnd some text after a fenced code block",
 		"<p>Some text before a fenced code block</p>\n\n<pre><code class=\"oz\">code blocks breakup paragraphs\n</code></pre>\n\n<p>Some text in between</p>\n\n<pre><code class=\"oz\">multiple code blocks work okay\n</code></pre>\n\n<p>And some text after a fenced code block</p>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_FENCED_CODE)
+	doTestsBlock(t, tests, EXTENSION_FENCED_CODE, 0, "")
 }
 
 func TestTable(t *testing.T) {
@@ -765,7 +837,7 @@ func TestTable(t *testing.T) {
 		"a|b\\|c|d\n---|---|---\nf|g\\|h|i\n",
 		"<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b|c</th>\n<th>d</th>\n</tr>\n</thead>\n\n<tbody>\n<tr>\n<td>f</td>\n<td>g|h</td>\n<td>i</td>\n</tr>\n</tbody>\n</table>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_TABLES)
+	doTestsBlock(t, tests, EXTENSION_TABLES, 0, "")
 }
 
 func TestUnorderedListWith_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
@@ -876,7 +948,7 @@ func TestUnorderedListWith_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
 		"* List\n\n    * sublist\n\n    normal text\n\n    * another sublist\n",
 		"<ul>\n<li><p>List</p>\n\n<ul>\n<li>sublist</li>\n</ul>\n\n<p>normal text</p>\n\n<ul>\n<li>another sublist</li>\n</ul></li>\n</ul>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK)
+	doTestsBlock(t, tests, EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK, 0, "")
 }
 
 func TestOrderedList_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
@@ -972,7 +1044,7 @@ func TestOrderedList_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
 		"1. numbers\n1. are ignored\n",
 		"<ol>\n<li>numbers</li>\n<li>are ignored</li>\n</ol>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK)
+	doTestsBlock(t, tests, EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK, 0, "")
 }
 
 func TestFencedCodeBlock_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
@@ -1043,5 +1115,5 @@ func TestFencedCodeBlock_EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK(t *testing.T) {
 		"    ``` oz\nleading spaces\n    ```\n",
 		"<pre><code>``` oz\n</code></pre>\n\n<p>leading spaces</p>\n\n<pre><code>```\n</code></pre>\n",
 	}
-	doTestsBlock(t, tests, EXTENSION_FENCED_CODE|EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK)
+	doTestsBlock(t, tests, EXTENSION_FENCED_CODE|EXTENSION_NO_EMPTY_LINE_BEFORE_BLOCK, 0, "")
 }
