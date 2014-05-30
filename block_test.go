@@ -684,6 +684,17 @@ func TestPreformattedHtmlWithOptions(t *testing.T) {
 	doTestsBlock(t, transformLinks(skipImgTests, prefix), 0, HTML_SKIP_IMAGES, prefix)
 }
 
+func TestSkipStyle(t *testing.T) {
+	var skipStyleTests = []string{
+		"zz <style>p {}</style>\n",
+		"<p>zz p {}</p>\n",
+
+		"zz <STYLE>p {}</STYLE>\n",
+		"<p>zz p {}</p>\n",
+	}
+	doTestsBlock(t, skipStyleTests, 0, HTML_SKIP_STYLE, "")
+}
+
 func TestPreformattedHtmlLax(t *testing.T) {
 	var tests = []string{
 		"Paragraph\n<div>\nHere? >&<\n</div>\n",
